@@ -307,7 +307,7 @@ app.get("/api/empresas", async (req, res) => {
       }
 
       if (copyrightTexto) {
-        resposta += ` Possível copyright icarol4No : ${copyrightTexto}. icarol4No `;
+        resposta += ` Possível copyright: ${copyrightTexto}.`;
       }
 
       return res.send(resposta);
@@ -350,7 +350,7 @@ app.get("/api/empresas", async (req, res) => {
       }
 
       if (copyrightTexto) {
-        resposta += ` Possível copyright icarol4No : ${copyrightTexto}. icarol4No `;
+        resposta += ` Possível copyright: ${copyrightTexto}.`;
       }
 
       return res.send(resposta);
