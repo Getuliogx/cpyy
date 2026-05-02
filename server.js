@@ -4,18 +4,12 @@ const app = express();
 
 const TMDB_KEY = process.env.TMDB_KEY;
 
-// Canais onde o comando pode funcionar.
-// Exemplo no Render:
-// CANAIS_PERMITIDOS=seucanal,outrocanal
 const CANAIS_PERMITIDOS = process.env.CANAIS_PERMITIDOS || "";
-
-// Usuários bloqueados de usar o comando.
-// Exemplo no Render:
-// USUARIOS_BLOQUEADOS=nick1,nick2,nick3
 const USUARIOS_BLOQUEADOS = process.env.USUARIOS_BLOQUEADOS || "";
+const WATCH_REGION = process.env.WATCH_REGION || "BR";
 
 app.get("/", (req, res) => {
-  res.send("API TMDB empresas online. Use /api/empresas?channel=canal&user=usuario&titulo=nome");
+  res.send("API TMDB empresas online.");
 });
 
 function limparTexto(texto) {
@@ -103,20 +97,28 @@ async function tmdbGet(url) {
   return resp.json();
 }
 
-function formatarEmpresas(lista) {
+function nomesUnicos(lista) {
   const nomes = [];
 
   for (const item of lista || []) {
-    if (item && item.name && !nomes.includes(item.name)) {
-      nomes.push(item.name);
+    const nome = typeof item === "string" ? item : item && item.name;
+
+    if (nome && !nomes.includes(nome)) {
+      nomes.push(nome);
     }
   }
+
+  return nomes;
+}
+
+function formatarLista(lista, limite = 6) {
+  const nomes = nomesUnicos(lista);
 
   if (nomes.length === 0) {
     return "";
   }
 
-  return nomes.slice(0, 6).join(", ");
+  return nomes.slice(0, limite).join(", ");
 }
 
 function escolherMelhorResultado(filme, serie, tipoForcado) {
@@ -175,6 +177,46 @@ function escolherMelhorResultado(filme, serie, tipoForcado) {
     tipo: "serie",
     item: serie
   };
+}
+
+function extrairProviders(watchProviders) {
+  const results = watchProviders && watchProviders.results ? watchProviders.results : {};
+  const dadosPais = results[WATCH_REGION];
+
+  if (!dadosPais) {
+    return [];
+  }
+
+  const todos = [
+    ...(dadosPais.flatrate || []),
+    ...(dadosPais.buy || []),
+    ...(dadosPais.rent || []),
+    ...(dadosPais.ads || []),
+    ...(dadosPais.free || [])
+  ];
+
+  const nomes = [];
+
+  for (const provider of todos) {
+    if (provider && provider.provider_name && !nomes.includes(provider.provider_name)) {
+      nomes.push(provider.provider_name);
+    }
+  }
+
+  return nomes;
+}
+
+function montarPossiveisCopyright(empresas, providers) {
+  const nomes = nomesUnicos([
+    ...nomesUnicos(empresas),
+    ...nomesUnicos(providers)
+  ]);
+
+  if (nomes.length === 0) {
+    return "";
+  }
+
+  return nomes.slice(0, 8).join(", ");
 }
 
 app.get("/api/empresas", async (req, res) => {
@@ -238,17 +280,37 @@ app.get("/api/empresas", async (req, res) => {
         `?api_key=${encodeURIComponent(TMDB_KEY)}` +
         `&language=pt-BR`;
 
-      const detalhesFilme = await tmdbGet(detalhesFilmeUrl);
+      const watchProvidersUrl =
+        `https://api.themoviedb.org/3/movie/${escolhido.item.id}/watch/providers` +
+        `?api_key=${encodeURIComponent(TMDB_KEY)}`;
 
-      const empresas = formatarEmpresas(detalhesFilme.production_companies);
+      const [detalhesFilme, watchProviders] = await Promise.all([
+        tmdbGet(detalhesFilmeUrl),
+        tmdbGet(watchProvidersUrl)
+      ]);
+
       const ano = escolhido.item.release_date ? escolhido.item.release_date.slice(0, 4) : "sem ano";
       const nome = detalhesFilme.title || escolhido.item.title || titulo;
 
-      if (!empresas) {
-        return res.send(`🎬 ${nome} (${ano}). Empresas relacionadas: não encontradas no TMDB.`);
+      const empresas = nomesUnicos(detalhesFilme.production_companies || []);
+      const providers = extrairProviders(watchProviders);
+
+      const empresasTexto = formatarLista(empresas, 6);
+      const copyrightTexto = montarPossiveisCopyright(empresas, providers);
+
+      let resposta = `🎬 ${nome} (${ano}).`;
+
+      if (empresasTexto) {
+        resposta += ` Empresas: ${empresasTexto}.`;
+      } else {
+        resposta += ` Empresas: não encontradas.`;
       }
 
-      return res.send(`🎬 ${nome} (${ano}). Empresas relacionadas: ${empresas}.`);
+      if (copyrightTexto) {
+        resposta += ` Possível copyright: ${copyrightTexto}.`;
+      }
+
+      return res.send(resposta);
     }
 
     if (escolhido.tipo === "serie") {
@@ -257,27 +319,47 @@ app.get("/api/empresas", async (req, res) => {
         `?api_key=${encodeURIComponent(TMDB_KEY)}` +
         `&language=pt-BR`;
 
-      const detalhesSerie = await tmdbGet(detalhesSerieUrl);
+      const watchProvidersUrl =
+        `https://api.themoviedb.org/3/tv/${escolhido.item.id}/watch/providers` +
+        `?api_key=${encodeURIComponent(TMDB_KEY)}`;
+
+      const [detalhesSerie, watchProviders] = await Promise.all([
+        tmdbGet(detalhesSerieUrl),
+        tmdbGet(watchProvidersUrl)
+      ]);
+
+      const nome = detalhesSerie.name || escolhido.item.name || titulo;
 
       const empresasSerie = [
         ...(detalhesSerie.networks || []),
         ...(detalhesSerie.production_companies || [])
       ];
 
-      const empresas = formatarEmpresas(empresasSerie);
-      const nome = detalhesSerie.name || escolhido.item.name || titulo;
+      const empresas = nomesUnicos(empresasSerie);
+      const providers = extrairProviders(watchProviders);
 
-      if (!empresas) {
-        return res.send(`📺 ${nome}. Empresas relacionadas: não encontradas no TMDB.`);
+      const empresasTexto = formatarLista(empresas, 6);
+      const copyrightTexto = montarPossiveisCopyright(empresas, providers);
+
+      let resposta = `📺 ${nome}.`;
+
+      if (empresasTexto) {
+        resposta += ` Empresas: ${empresasTexto}.`;
+      } else {
+        resposta += ` Empresas: não encontradas.`;
       }
 
-      return res.send(`📺 ${nome}. Empresas relacionadas: ${empresas}.`);
+      if (copyrightTexto) {
+        resposta += ` Possível copyright: ${copyrightTexto}.`;
+      }
+
+      return res.send(resposta);
     }
 
-    return res.send(`Não achei empresas relacionadas para "${titulo}".`);
+    return res.send(`Não achei empresas para "${titulo}".`);
   } catch (err) {
     console.error(err);
-    return res.send("Erro ao consultar empresas relacionadas no TMDB.");
+    return res.send("Erro ao consultar empresas no TMDB.");
   }
 });
 
