@@ -8,8 +8,13 @@ const CANAIS_PERMITIDOS = process.env.CANAIS_PERMITIDOS || "";
 const USUARIOS_BLOQUEADOS = process.env.USUARIOS_BLOQUEADOS || "";
 const WATCH_REGION = process.env.WATCH_REGION || "BR";
 
+// Opcional: coloque um emote no Render.
+// Exemplo:
+// EMOTE_COPYRIGHT=Kappa
+const EMOTE_COPYRIGHT = process.env.EMOTE_COPYRIGHT || "";
+
 app.get("/", (req, res) => {
-  res.send("API TMDB empresas online.");
+  res.send("API TMDB possível copyright online.");
 });
 
 function limparTexto(texto) {
@@ -111,16 +116,6 @@ function nomesUnicos(lista) {
   return nomes;
 }
 
-function formatarLista(lista, limite = 6) {
-  const nomes = nomesUnicos(lista);
-
-  if (nomes.length === 0) {
-    return "";
-  }
-
-  return nomes.slice(0, limite).join(", ");
-}
-
 function escolherMelhorResultado(filme, serie, tipoForcado) {
   if (tipoForcado === "filme" || tipoForcado === "movie") {
     return {
@@ -219,6 +214,20 @@ function montarPossiveisCopyright(empresas, providers) {
   return nomes.slice(0, 8).join(", ");
 }
 
+function montarRespostaCopyright(icone, nome, copyrightTexto) {
+  const emote = limparTexto(EMOTE_COPYRIGHT);
+
+  if (!copyrightTexto) {
+    return `${icone} ${nome}. Possível copyright: não encontrado.`;
+  }
+
+  if (emote) {
+    return `${icone} ${nome}. Possível copyright: ${emote} ${copyrightTexto}.`;
+  }
+
+  return `${icone} ${nome}. Possível copyright: ${copyrightTexto}.`;
+}
+
 app.get("/api/empresas", async (req, res) => {
   try {
     const canalRecebido = req.query.channel;
@@ -239,7 +248,7 @@ app.get("/api/empresas", async (req, res) => {
     }
 
     if (!titulo) {
-      return res.send("Use assim: !empresas nome do filme ou série");
+      return res.send("Use assim: !copyright nome do filme ou série");
     }
 
     if (!TMDB_KEY) {
@@ -290,27 +299,14 @@ app.get("/api/empresas", async (req, res) => {
       ]);
 
       const ano = escolhido.item.release_date ? escolhido.item.release_date.slice(0, 4) : "sem ano";
-      const nome = detalhesFilme.title || escolhido.item.title || titulo;
+      const nomeBase = detalhesFilme.title || escolhido.item.title || titulo;
+      const nome = `${nomeBase} (${ano})`;
 
       const empresas = nomesUnicos(detalhesFilme.production_companies || []);
       const providers = extrairProviders(watchProviders);
-
-      const empresasTexto = formatarLista(empresas, 6);
       const copyrightTexto = montarPossiveisCopyright(empresas, providers);
 
-      let resposta = `🎬 ${nome} (${ano}).`;
-
-      if (empresasTexto) {
-        resposta += ` Empresas: ${empresasTexto}.`;
-      } else {
-        resposta += ` Empresas: não encontradas.`;
-      }
-
-      if (copyrightTexto) {
-        resposta += ` Possível copyright: ${copyrightTexto}.`;
-      }
-
-      return res.send(resposta);
+      return res.send(montarRespostaCopyright("🎬", nome, copyrightTexto));
     }
 
     if (escolhido.tipo === "serie") {
@@ -337,29 +333,15 @@ app.get("/api/empresas", async (req, res) => {
 
       const empresas = nomesUnicos(empresasSerie);
       const providers = extrairProviders(watchProviders);
-
-      const empresasTexto = formatarLista(empresas, 6);
       const copyrightTexto = montarPossiveisCopyright(empresas, providers);
 
-      let resposta = `📺 ${nome}.`;
-
-      if (empresasTexto) {
-        resposta += ` Empresas: ${empresasTexto}.`;
-      } else {
-        resposta += ` Empresas: não encontradas.`;
-      }
-
-      if (copyrightTexto) {
-        resposta += ` Possível copyright: ${copyrightTexto}.`;
-      }
-
-      return res.send(resposta);
+      return res.send(montarRespostaCopyright("📺", nome, copyrightTexto));
     }
 
-    return res.send(`Não achei empresas para "${titulo}".`);
+    return res.send(`Não achei possível copyright para "${titulo}".`);
   } catch (err) {
     console.error(err);
-    return res.send("Erro ao consultar empresas no TMDB.");
+    return res.send("Erro ao consultar possível copyright no TMDB.");
   }
 });
 
