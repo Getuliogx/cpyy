@@ -8,8 +8,7 @@ const CANAIS_PERMITIDOS = process.env.CANAIS_PERMITIDOS || "";
 const USUARIOS_BLOQUEADOS = process.env.USUARIOS_BLOQUEADOS || "";
 const WATCH_REGION = process.env.WATCH_REGION || "BR";
 
-// Opcional: coloque um emote no Render.
-// Exemplo:
+// Opcional no Render:
 // EMOTE_COPYRIGHT=Kappa
 const EMOTE_COPYRIGHT = process.env.EMOTE_COPYRIGHT || "";
 
@@ -27,6 +26,16 @@ function normalizarNick(texto) {
   return String(texto || "")
     .toLowerCase()
     .replace(/^@/, "")
+    .trim();
+}
+
+function normalizarTexto(texto) {
+  return String(texto || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -214,18 +223,207 @@ function montarPossiveisCopyright(empresas, providers) {
   return nomes.slice(0, 8).join(", ");
 }
 
-function montarRespostaCopyright(icone, nome, copyrightTexto) {
+function detectarAnimeOuDesenho(detalhes, tipo) {
+  const texto = normalizarTexto([
+    detalhes.name,
+    detalhes.title,
+    detalhes.original_name,
+    detalhes.original_title,
+    ...(detalhes.genres || []).map(g => g.name),
+    ...(detalhes.origin_country || [])
+  ].join(" "));
+
+  if (texto.includes("animation") || texto.includes("animacao") || texto.includes("animação")) {
+    return true;
+  }
+
+  const nomes = normalizarTexto([
+    detalhes.name,
+    detalhes.title,
+    detalhes.original_name,
+    detalhes.original_title
+  ].join(" "));
+
+  const termosAnime = [
+    "dragon ball",
+    "naruto",
+    "one piece",
+    "bleach",
+    "jujutsu",
+    "demon slayer",
+    "kimetsu",
+    "attack on titan",
+    "shingeki",
+    "death note",
+    "saint seiya",
+    "cavaleiros do zodiaco",
+    "pokemon",
+    "digimon",
+    "yu gi oh",
+    "boku no hero",
+    "my hero academia"
+  ];
+
+  return termosAnime.some(t => nomes.includes(t));
+}
+
+function calcularRiscoCopyright({ tipo, ano, popularidade, copyrightTexto, providers, detalhes }) {
+  const texto = normalizarTexto([
+    copyrightTexto,
+    ...(providers || []),
+    detalhes && detalhes.name,
+    detalhes && detalhes.title,
+    detalhes && detalhes.original_name,
+    detalhes && detalhes.original_title
+  ].join(" "));
+
+  let risco = 35;
+
+  const gruposMuitoAltos = [
+    "crunchyroll",
+    "toei",
+    "disney",
+    "warner",
+    "hbo",
+    "max",
+    "netflix",
+    "universal",
+    "paramount",
+    "sony",
+    "columbia",
+    "20th century",
+    "twentieth century",
+    "fox",
+    "lionsgate",
+    "mgm",
+    "amazon",
+    "prime video",
+    "apple tv"
+  ];
+
+  const gruposAltos = [
+    "adult swim",
+    "cartoon network",
+    "nickelodeon",
+    "dreamworks",
+    "illumination",
+    "pixar",
+    "marvel",
+    "lucasfilm",
+    "dc entertainment",
+    "toho",
+    "funimation",
+    "hulu",
+    "peacock"
+  ];
+
+  const gruposMedios = [
+    "bbc",
+    "amc",
+    "starz",
+    "showtime",
+    "the cw",
+    "cbs",
+    "nbc",
+    "abc",
+    "fx",
+    "fxx",
+    "mtv"
+  ];
+
+  for (const termo of gruposMuitoAltos) {
+    if (texto.includes(termo)) {
+      risco += 35;
+      break;
+    }
+  }
+
+  for (const termo of gruposAltos) {
+    if (texto.includes(termo)) {
+      risco += 25;
+      break;
+    }
+  }
+
+  for (const termo of gruposMedios) {
+    if (texto.includes(termo)) {
+      risco += 15;
+      break;
+    }
+  }
+
+  const anoAtual = new Date().getFullYear();
+  const anoNum = Number(ano);
+
+  if (anoNum && anoNum >= anoAtual - 2) {
+    risco += 20;
+  } else if (anoNum && anoNum >= anoAtual - 8) {
+    risco += 12;
+  } else if (anoNum && anoNum < 1995) {
+    risco -= 5;
+  }
+
+  const pop = Number(popularidade || 0);
+
+  if (pop >= 150) {
+    risco += 15;
+  } else if (pop >= 80) {
+    risco += 10;
+  } else if (pop >= 30) {
+    risco += 5;
+  }
+
+  const isAnimeOuDesenho = detectarAnimeOuDesenho(detalhes || {}, tipo);
+
+  if (isAnimeOuDesenho) {
+    risco += 10;
+
+    if (
+      texto.includes("crunchyroll") ||
+      texto.includes("toei") ||
+      texto.includes("funimation") ||
+      texto.includes("tv tokyo") ||
+      texto.includes("fuji tv")
+    ) {
+      risco += 15;
+    }
+  }
+
+  if (!copyrightTexto) {
+    risco = 45;
+  }
+
+  if (risco < 10) risco = 10;
+  if (risco > 98) risco = 98;
+
+  let nivel = "Baixo";
+
+  if (risco >= 86) {
+    nivel = "Muito alto";
+  } else if (risco >= 61) {
+    nivel = "Alto";
+  } else if (risco >= 31) {
+    nivel = "Médio";
+  }
+
+  return {
+    porcentagem: risco,
+    nivel
+  };
+}
+
+function montarRespostaCopyright(icone, nome, copyrightTexto, risco) {
   const emote = limparTexto(EMOTE_COPYRIGHT);
 
   if (!copyrightTexto) {
-    return `${icone} ${nome}. Possível copyright: não encontrado.`;
+    return `${icone} ${nome}. Possível copyright: não encontrado. Risco: ${risco.porcentagem}% - ${risco.nivel}.`;
   }
 
   if (emote) {
-    return `${icone} ${nome}. Possível copyright: ${emote} ${copyrightTexto}.`;
+    return `${icone} ${nome}. Possível copyright: ${emote} ${copyrightTexto}. Risco: ${risco.porcentagem}% - ${risco.nivel}.`;
   }
 
-  return `${icone} ${nome}. Possível copyright: ${copyrightTexto}.`;
+  return `${icone} ${nome}. Possível copyright: ${copyrightTexto}. Risco: ${risco.porcentagem}% - ${risco.nivel}.`;
 }
 
 app.get("/api/empresas", async (req, res) => {
@@ -306,7 +504,16 @@ app.get("/api/empresas", async (req, res) => {
       const providers = extrairProviders(watchProviders);
       const copyrightTexto = montarPossiveisCopyright(empresas, providers);
 
-      return res.send(montarRespostaCopyright("🎬", nome, copyrightTexto));
+      const risco = calcularRiscoCopyright({
+        tipo: "filme",
+        ano,
+        popularidade: escolhido.item.popularity,
+        copyrightTexto,
+        providers,
+        detalhes: detalhesFilme
+      });
+
+      return res.send(montarRespostaCopyright("🎬", nome, copyrightTexto, risco));
     }
 
     if (escolhido.tipo === "serie") {
@@ -335,7 +542,20 @@ app.get("/api/empresas", async (req, res) => {
       const providers = extrairProviders(watchProviders);
       const copyrightTexto = montarPossiveisCopyright(empresas, providers);
 
-      return res.send(montarRespostaCopyright("📺", nome, copyrightTexto));
+      const primeiroAno = detalhesSerie.first_air_date
+        ? detalhesSerie.first_air_date.slice(0, 4)
+        : "";
+
+      const risco = calcularRiscoCopyright({
+        tipo: "serie",
+        ano: primeiroAno,
+        popularidade: escolhido.item.popularity,
+        copyrightTexto,
+        providers,
+        detalhes: detalhesSerie
+      });
+
+      return res.send(montarRespostaCopyright("📺", nome, copyrightTexto, risco));
     }
 
     return res.send(`Não achei possível copyright para "${titulo}".`);
