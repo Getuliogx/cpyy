@@ -77,6 +77,57 @@ function canalEstaPermitido(canalRecebido) {
   };
 }
 
+function separarTituloAnoETemporada(texto) {
+  let titulo = limparTexto(texto);
+  let ano = null;
+  let temporada = null;
+
+  // Aceita no final: T1, t1, S1, temporada 1, temp 1.
+  // Exemplos: "perdidos no espaço 2018 T1", "lost temporada 2".
+  const matchTemporadaExplicita = titulo.match(/^(.*?)\s+(?:t|s|temp|temporada)\s*\.?\s*(\d+)$/i);
+
+  if (matchTemporadaExplicita) {
+    titulo = limparTexto(matchTemporadaExplicita[1]);
+    temporada = Number(matchTemporadaExplicita[2]);
+  }
+
+  // Aceita ano no final depois de remover a temporada.
+  // Exemplos: "a mumia 1999", "perdidos no espaço 2018 T1".
+  const matchAno = titulo.match(/^(.*?)\s+\(?((?:18|19|20|21)\d{2})\)?$/);
+
+  if (matchAno) {
+    titulo = limparTexto(matchAno[1]);
+    ano = Number(matchAno[2]);
+  }
+
+  return {
+    titulo,
+    ano,
+    temporada
+  };
+}
+
+function anoDoFilme(item) {
+  return item && item.release_date ? String(item.release_date).slice(0, 4) : "";
+}
+
+function anoDaSerie(item) {
+  return item && item.first_air_date ? String(item.first_air_date).slice(0, 4) : "";
+}
+
+function escolherResultadoPorAno(resultados, ano, pegarAno) {
+  if (!Array.isArray(resultados) || resultados.length === 0) {
+    return null;
+  }
+
+  if (!ano) {
+    return resultados[0];
+  }
+
+  const anoTexto = String(ano);
+  return resultados.find(item => pegarAno(item) === anoTexto) || null;
+}
+
 function usuarioEstaBloqueado(usuarioRecebido) {
   const usuario = normalizarNick(usuarioRecebido);
   const bloqueados = listaEnv(USUARIOS_BLOQUEADOS);
@@ -430,7 +481,7 @@ app.get("/api/empresas", async (req, res) => {
   try {
     const canalRecebido = req.query.channel;
     const usuarioRecebido = req.query.user;
-    const titulo = limparTexto(req.query.titulo);
+    const entrada = limparTexto(req.query.titulo);
     const tipoForcado = limparTexto(req.query.tipo).toLowerCase();
 
     const permissaoCanal = canalEstaPermitido(canalRecebido);
@@ -445,12 +496,18 @@ app.get("/api/empresas", async (req, res) => {
       return res.send(bloqueioUsuario.erro);
     }
 
-    if (!titulo) {
-      return res.send("Use assim: !copyright nome do filme ou série");
+    if (!entrada) {
+      return res.send("Use assim: !copyright nome do filme 1999 ou !copyright nome da série 2018 T1");
     }
 
     if (!TMDB_KEY) {
       return res.send("Erro: TMDB_KEY não configurada no Render.");
+    }
+
+    const { titulo, ano, temporada } = separarTituloAnoETemporada(entrada);
+
+    if (!titulo) {
+      return res.send("Digite o nome do filme, série, anime ou desenho.");
     }
 
     const buscaFilmeUrl =
@@ -458,27 +515,30 @@ app.get("/api/empresas", async (req, res) => {
       `?api_key=${encodeURIComponent(TMDB_KEY)}` +
       `&language=pt-BR` +
       `&query=${encodeURIComponent(titulo)}` +
-      `&include_adult=false`;
+      `&include_adult=false` +
+      (ano ? `&primary_release_year=${encodeURIComponent(ano)}` : "");
 
     const buscaSerieUrl =
       "https://api.themoviedb.org/3/search/tv" +
       `?api_key=${encodeURIComponent(TMDB_KEY)}` +
       `&language=pt-BR` +
       `&query=${encodeURIComponent(titulo)}` +
-      `&include_adult=false`;
+      `&include_adult=false` +
+      (ano ? `&first_air_date_year=${encodeURIComponent(ano)}` : "");
 
     const [buscaFilme, buscaSerie] = await Promise.all([
       tmdbGet(buscaFilmeUrl),
       tmdbGet(buscaSerieUrl)
     ]);
 
-    const filme = buscaFilme.results && buscaFilme.results[0] ? buscaFilme.results[0] : null;
-    const serie = buscaSerie.results && buscaSerie.results[0] ? buscaSerie.results[0] : null;
+    const filme = escolherResultadoPorAno(buscaFilme.results, ano, anoDoFilme);
+    const serie = escolherResultadoPorAno(buscaSerie.results, ano, anoDaSerie);
+    const tipoParaEscolher = temporada !== null ? "serie" : tipoForcado;
 
-    const escolhido = escolherMelhorResultado(filme, serie, tipoForcado);
+    const escolhido = escolherMelhorResultado(filme, serie, tipoParaEscolher);
 
     if (!escolhido.item) {
-      return res.send(`Não achei "${titulo}" no TMDB.`);
+      return res.send(`Não achei "${titulo}"${ano ? ` de ${ano}` : ""} no TMDB.`);
     }
 
     if (escolhido.tipo === "filme") {
@@ -531,7 +591,9 @@ app.get("/api/empresas", async (req, res) => {
         tmdbGet(watchProvidersUrl)
       ]);
 
-      const nome = detalhesSerie.name || escolhido.item.name || titulo;
+      const primeiroAno = anoDaSerie(detalhesSerie) || anoDaSerie(escolhido.item);
+      const nomeBase = detalhesSerie.name || escolhido.item.name || titulo;
+      const nome = `${nomeBase}${primeiroAno ? ` (${primeiroAno})` : ""}${temporada !== null ? ` - T${temporada}` : ""}`;
 
       const empresasSerie = [
         ...(detalhesSerie.networks || []),
@@ -541,10 +603,6 @@ app.get("/api/empresas", async (req, res) => {
       const empresas = nomesUnicos(empresasSerie);
       const providers = extrairProviders(watchProviders);
       const copyrightTexto = montarPossiveisCopyright(empresas, providers);
-
-      const primeiroAno = detalhesSerie.first_air_date
-        ? detalhesSerie.first_air_date.slice(0, 4)
-        : "";
 
       const risco = calcularRiscoCopyright({
         tipo: "serie",
