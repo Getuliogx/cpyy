@@ -374,135 +374,154 @@ function calcularRiscoCopyright({ tipo, ano, popularidade, copyrightTexto, provi
     detalhes && detalhes.name,
     detalhes && detalhes.title,
     detalhes && detalhes.original_name,
-    detalhes && detalhes.original_title
+    detalhes && detalhes.original_title,
+    detalhes && detalhes.status,
+    ...(detalhes && detalhes.genres ? detalhes.genres.map(g => g.name) : []),
+    ...(detalhes && detalhes.origin_country ? detalhes.origin_country : []),
+    ...(detalhes && detalhes.production_countries ? detalhes.production_countries.map(p => p.name) : [])
   ].join(" "));
-
-  let risco = 35;
-
-  const gruposMuitoAltos = [
-    "crunchyroll",
-    "toei",
-    "disney",
-    "warner",
-    "hbo",
-    "max",
-    "netflix",
-    "universal",
-    "paramount",
-    "sony",
-    "columbia",
-    "20th century",
-    "twentieth century",
-    "fox",
-    "lionsgate",
-    "mgm",
-    "amazon",
-    "prime video",
-    "apple tv"
-  ];
-
-  const gruposAltos = [
-    "adult swim",
-    "cartoon network",
-    "nickelodeon",
-    "dreamworks",
-    "illumination",
-    "pixar",
-    "marvel",
-    "lucasfilm",
-    "dc entertainment",
-    "toho",
-    "funimation",
-    "hulu",
-    "peacock"
-  ];
-
-  const gruposMedios = [
-    "bbc",
-    "amc",
-    "starz",
-    "showtime",
-    "the cw",
-    "cbs",
-    "nbc",
-    "abc",
-    "fx",
-    "fxx",
-    "mtv"
-  ];
-
-  for (const termo of gruposMuitoAltos) {
-    if (texto.includes(termo)) {
-      risco += 35;
-      break;
-    }
-  }
-
-  for (const termo of gruposAltos) {
-    if (texto.includes(termo)) {
-      risco += 25;
-      break;
-    }
-  }
-
-  for (const termo of gruposMedios) {
-    if (texto.includes(termo)) {
-      risco += 15;
-      break;
-    }
-  }
 
   const anoAtual = new Date().getFullYear();
   const anoNum = Number(ano);
+  const idade = anoNum ? Math.max(0, anoAtual - anoNum) : null;
+  const pop = Number(popularidade || (detalhes && detalhes.popularity) || 0);
+  const votos = Number((detalhes && detalhes.vote_count) || 0);
+  const qtdProviders = nomesUnicos(providers || []).length;
+  const temEmpresasOuProviders = Boolean(limparTexto(copyrightTexto)) || qtdProviders > 0;
 
-  if (anoNum && anoNum >= anoAtual - 2) {
-    risco += 20;
-  } else if (anoNum && anoNum >= anoAtual - 8) {
-    risco += 12;
-  } else if (anoNum && anoNum < 1995) {
-    risco -= 5;
+  let risco = temEmpresasOuProviders ? 26 : 20;
+
+  function contemAlgum(lista) {
+    return lista.some(termo => texto.includes(termo));
   }
 
-  const pop = Number(popularidade || 0);
+  // Peso principal: empresas/streamings que costumam ter detecção e bloqueio mais forte.
+  // Usa o MAIOR peso encontrado, em vez de somar tudo e inflar demais a porcentagem.
+  const grupos = [
+    {
+      peso: 42,
+      termos: [
+        "disney", "pixar", "marvel", "lucasfilm", "20th century", "twentieth century",
+        "warner", "hbo", "max", "dc entertainment",
+        "universal", "dreamworks", "illumination",
+        "paramount", "nickelodeon", "mtv",
+        "netflix", "sony", "columbia", "amazon", "prime video", "apple tv"
+      ]
+    },
+    {
+      peso: 38,
+      termos: [
+        "crunchyroll", "toei", "funimation", "aniplex", "viz media", "tv tokyo",
+        "fuji tv", "toho", "kadokawa", "bandai", "shueisha", "kodansha"
+      ]
+    },
+    {
+      peso: 32,
+      termos: [
+        "lionsgate", "mgm", "metro goldwyn mayer", "peacock", "hulu", "adult swim",
+        "cartoon network", "cartoon", "boomerang", "discovery", "national geographic"
+      ]
+    },
+    {
+      peso: 24,
+      termos: [
+        "bbc", "amc", "starz", "showtime", "the cw", "cbs", "nbc", "abc", "fx", "fxx",
+        "fox", "globoplay", "telecine", "mubi", "paramount+", "disney+"
+      ]
+    },
+    {
+      peso: 14,
+      termos: [
+        "studio", "studios", "pictures", "films", "television", "network", "productions", "animation"
+      ]
+    }
+  ];
 
-  if (pop >= 150) {
-    risco += 15;
-  } else if (pop >= 80) {
-    risco += 10;
-  } else if (pop >= 30) {
-    risco += 5;
+  let maiorPesoGrupo = 0;
+  for (const grupo of grupos) {
+    if (contemAlgum(grupo.termos)) {
+      maiorPesoGrupo = Math.max(maiorPesoGrupo, grupo.peso);
+    }
+  }
+  risco += maiorPesoGrupo;
+
+  // Plataformas disponíveis aumentam o risco, mas com limite para não virar 98% em tudo.
+  if (qtdProviders >= 6) {
+    risco += 16;
+  } else if (qtdProviders >= 3) {
+    risco += 12;
+  } else if (qtdProviders >= 1) {
+    risco += 8;
+  }
+
+  // Ano: conteúdo recente tende a ser mais protegido/monitorado; conteúdo muito antigo reduz um pouco.
+  if (idade !== null) {
+    if (idade <= 1) {
+      risco += 18;
+    } else if (idade <= 4) {
+      risco += 15;
+    } else if (idade <= 9) {
+      risco += 11;
+    } else if (idade <= 20) {
+      risco += 7;
+    } else if (idade <= 35) {
+      risco += 3;
+    } else if (idade >= 90 && maiorPesoGrupo < 30 && qtdProviders === 0) {
+      risco -= 18;
+    } else if (idade >= 70 && maiorPesoGrupo < 30 && qtdProviders === 0) {
+      risco -= 12;
+    } else if (idade >= 45 && maiorPesoGrupo < 30) {
+      risco -= 6;
+    }
+  }
+
+  // Popularidade do TMDb varia muito; escala logarítmica deixa o valor mais estável.
+  if (pop > 0) {
+    risco += Math.min(16, Math.round(Math.log10(pop + 1) * 7));
+  }
+
+  // Vote count ajuda a diferenciar obra muito conhecida de obra pouco conhecida.
+  if (votos >= 10000) {
+    risco += 8;
+  } else if (votos >= 3000) {
+    risco += 6;
+  } else if (votos >= 800) {
+    risco += 4;
+  } else if (votos >= 150) {
+    risco += 2;
   }
 
   const isAnimeOuDesenho = detectarAnimeOuDesenho(detalhes || {}, tipo);
 
   if (isAnimeOuDesenho) {
-    risco += 10;
+    risco += 6;
 
-    if (
-      texto.includes("crunchyroll") ||
-      texto.includes("toei") ||
-      texto.includes("funimation") ||
-      texto.includes("tv tokyo") ||
-      texto.includes("fuji tv")
-    ) {
-      risco += 15;
+    if (contemAlgum(["crunchyroll", "toei", "funimation", "aniplex", "tv tokyo", "fuji tv", "shueisha", "kodansha"])) {
+      risco += 8;
     }
   }
 
-  if (!copyrightTexto) {
-    risco = 45;
+  if (detalhes && detalhes.belongs_to_collection) {
+    risco += 5;
   }
 
-  if (risco < 10) risco = 10;
+  // Se não achou empresa nem streaming, não força porcentagem alta só por existir no TMDb.
+  if (!temEmpresasOuProviders) {
+    risco = Math.min(risco, 58);
+  }
+
+  if (risco < 8) risco = 8;
   if (risco > 98) risco = 98;
+
+  risco = Math.round(risco);
 
   let nivel = "Baixo";
 
-  if (risco >= 86) {
+  if (risco >= 82) {
     nivel = "Muito alto";
-  } else if (risco >= 61) {
+  } else if (risco >= 60) {
     nivel = "Alto";
-  } else if (risco >= 31) {
+  } else if (risco >= 32) {
     nivel = "Médio";
   }
 

@@ -53,3 +53,14 @@ Netflix Standard with Ads -> Netflix
 Prime Video with Ads -> Prime Video
 Amazon Prime Video with Ads -> Prime Video
 ```
+
+
+## Porcentagem de risco
+
+A porcentagem foi ajustada para ficar mais coerente: agora considera empresas/plataformas com peso diferente, quantidade de plataformas, ano, popularidade, votos no TMDb, anime/desenho e franquia.
+
+A resposta continua limpa, sem mostrar motivos:
+
+```text
+Possível copyright: empresa/plataforma. Risco: 90% - Muito alto.
+```
