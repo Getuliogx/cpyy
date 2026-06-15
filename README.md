@@ -39,3 +39,17 @@ Números que fazem parte do nome continuam funcionando:
 !copyright Distrito 9 2009
 !copyright 1917 2019
 ```
+
+
+## Plataformas com anúncios
+
+As variações com anúncio agora são agrupadas no nome principal da plataforma.
+
+Exemplos:
+
+```text
+Netflix basic with Ads -> Netflix
+Netflix Standard with Ads -> Netflix
+Prime Video with Ads -> Prime Video
+Amazon Prime Video with Ads -> Prime Video
+```

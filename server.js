@@ -176,6 +176,63 @@ function nomesUnicos(lista) {
   return nomes;
 }
 
+function limparNomePlataforma(nomeRecebido) {
+  let nome = limparTexto(nomeRecebido);
+
+  if (!nome) {
+    return "";
+  }
+
+  const textoNormalizado = normalizarTexto(nome);
+
+  // Agrupa as variações com anúncio no nome principal da plataforma.
+  // Exemplos:
+  // "Netflix basic with Ads" -> "Netflix"
+  // "Prime Video with Ads" -> "Prime Video"
+  // "Amazon Prime Video with Ads" -> "Prime Video"
+  if (textoNormalizado.includes("netflix")) return "Netflix";
+  if (textoNormalizado.includes("prime video") || textoNormalizado.includes("amazon prime")) return "Prime Video";
+  if (textoNormalizado.includes("disney")) return "Disney+";
+  if (textoNormalizado.includes("paramount")) return "Paramount+";
+  if (textoNormalizado.includes("crunchyroll")) return "Crunchyroll";
+  if (textoNormalizado.includes("globoplay")) return "Globoplay";
+  if (textoNormalizado.includes("apple tv")) return "Apple TV";
+  if (textoNormalizado.includes("mubi")) return "MUBI";
+  if (textoNormalizado.includes("telecine")) return "Telecine";
+  if (textoNormalizado === "max" || textoNormalizado.includes("hbo max")) return "Max";
+
+  // Limpeza genérica para outros provedores que venham com "ads/with ads/com anúncios".
+  nome = nome
+    .replace(/\bbasic\s+with\s+ads?\b/gi, "")
+    .replace(/\bstandard\s+with\s+ads?\b/gi, "")
+    .replace(/\bwith\s+ads?\b/gi, "")
+    .replace(/\bwith\s+advertisements?\b/gi, "")
+    .replace(/\bad[-\s]?supported\b/gi, "")
+    .replace(/\bads?\b/gi, "")
+    .replace(/\bcom\s+an[úu]ncios?\b/gi, "")
+    .replace(/\bcom\s+publicidade\b/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/[\s\-:|]+$/g, "")
+    .trim();
+
+  return nome;
+}
+
+function nomesPlataformasUnicos(lista) {
+  const nomes = [];
+
+  for (const item of lista || []) {
+    const nomeOriginal = typeof item === "string" ? item : item && item.provider_name;
+    const nome = limparNomePlataforma(nomeOriginal);
+
+    if (nome && !nomes.includes(nome)) {
+      nomes.push(nome);
+    }
+  }
+
+  return nomes;
+}
+
 function escolherMelhorResultado(filme, serie, tipoForcado) {
   if (tipoForcado === "filme" || tipoForcado === "movie") {
     return {
@@ -250,15 +307,7 @@ function extrairProviders(watchProviders) {
     ...(dadosPais.free || [])
   ];
 
-  const nomes = [];
-
-  for (const provider of todos) {
-    if (provider && provider.provider_name && !nomes.includes(provider.provider_name)) {
-      nomes.push(provider.provider_name);
-    }
-  }
-
-  return nomes;
+  return nomesPlataformasUnicos(todos);
 }
 
 function montarPossiveisCopyright(empresas, providers) {
